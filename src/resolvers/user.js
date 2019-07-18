@@ -97,5 +97,10 @@ export default {
         userId: user.id,
       });
     },
+    reservations: async (user, args, { models }) => {
+      return await models.Reservation.find({
+        userId: user.id,
+      });
+    },
   },
 };
