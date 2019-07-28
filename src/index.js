@@ -5,12 +5,27 @@ import http from 'http';
 import jwt from 'jsonwebtoken';
 import DataLoader from 'dataloader';
 import express from 'express';
+import bodyParser from 'body-parser';
+import { HttpLink } from 'apollo-link-http';
+import { setContext } from 'apollo-link-context';
 import {
   ApolloServer,
   AuthenticationError,
 } from 'apollo-server-express';
+import {
+  makeExecutableSchema,
+  makeRemoteExecutableSchema,
+  mergeSchemas,
+  introspectSchema,
+  transformSchema,
+  FilterRootFields,
+  RenameTypes,
+  RenameRootFields,
+} from 'graphql-tools';
+import fetch from 'node-fetch';
+import promiseLimit from 'promise-limit';
 
-import schema from './schema';
+import typeDefs from './schema';
 import resolvers from './resolvers';
 import models, { connectDb } from './models';
 import loaders from './loaders';
@@ -35,112 +50,145 @@ const getMe = async req => {
   }
 };
 
-const server = new ApolloServer({
-  introspection: true,
-  typeDefs: schema,
-  resolvers,
-  formatError: error => {
-    // remove the internal sequelize error message
-    // leave only the important validation error
-    const message = error.message
-      .replace('SequelizeValidationError: ', '')
-      .replace('Validation error: ', '');
+const createHttpServer = async () => {
+  const localSchema = makeExecutableSchema({ typeDefs, resolvers });
 
-    return {
-      ...error,
-      message,
-    };
-  },
-  context: async ({ req, connection }) => {
-    if (connection) {
-      return {
-        models,
-        loaders: {
-          user: new DataLoader(keys =>
-            loaders.user.batchUsers(keys, models),
-          ),
-        },
-      };
+  const yelpHttp = new HttpLink({
+    uri: 'https://api.yelp.com/v3/graphql',
+    fetch: fetch.default,
+  });
+
+  const yelpLink = setContext((request, previousContext) => ({
+    headers: {
+      Authorization: `Bearer xNYgUF23uSM_1t8mFuobYLNpdqWcj3fX7Ag80S26uhAiHIgNyLeeqfJwwj0Szs_OTc4LDi_Wh29sUod8D7cTus4aIvM8_QJZrf4yz1u55TYTGp6MgLLgFay9igorXXYx`,
+    },
+  })).concat(yelpHttp);
+
+  const linkTypeDefs = `
+    extend type Reservation {
+      business: Business!
     }
+  `;
 
-    if (req) {
-      const me = await getMe(req);
+  const yelpSchema = makeRemoteExecutableSchema({
+    schema: await introspectSchema(yelpLink),
+    link: yelpLink,
+    cacheControl: {
+      defaultMaxAge: 86400,
+    },
+  });
+
+  const transformedYelpSchema = transformSchema(yelpSchema, [
+    new RenameTypes(name => {
+      if (name === 'User') return 'YelpUser';
+      else return name;
+    }),
+    /*
+    new RenameRootFields(
+      (
+        operation: 'Query' | 'Mutation' | 'Subscription',
+        name: string,
+      ) => `Chirp_${name}`,
+    ),
+    */
+  ]);
+
+  const limit = promiseLimit(1);
+  const schema = mergeSchemas({
+    schemas: [localSchema, await transformedYelpSchema, linkTypeDefs],
+    resolvers: {
+      Reservation: {
+        business: {
+          fragment: `... on Reservation { businessId }`,
+          resolve({ businessId }, args, context, info) {
+            info.cacheControl.setCacheHint({ maxAge: 86400 });
+
+            console.log('resolve businessId ', businessId);
+            console.log('info ', info);
+
+            return limit(() =>
+              info.mergeInfo.delegateToSchema({
+                schema: transformedYelpSchema,
+                operation: 'query',
+                fieldName: 'business',
+                args: {
+                  id: businessId,
+                },
+                context,
+                info,
+                transforms: transformedYelpSchema.transforms,
+              }),
+            );
+          },
+        },
+      },
+    },
+  });
+
+  const server = new ApolloServer({
+    introspection: true,
+    tracing: true,
+    cacheControl: {
+      defaultMaxAge: 86400,
+    },
+    schema: await schema,
+    formatError: error => {
+      // remove the internal sequelize error message
+      // leave only the important validation error
+      const message = error.message
+        .replace('SequelizeValidationError: ', '')
+        .replace('Validation error: ', '');
 
       return {
-        models,
-        me,
-        secret: process.env.SECRET,
-        loaders: {
-          user: new DataLoader(keys =>
-            loaders.user.batchUsers(keys, models),
-          ),
-        },
+        ...error,
+        message,
       };
-    }
-  },
-});
+    },
+    context: async ({ req, connection }) => {
+      if (connection) {
+        return {
+          models,
+          loaders: {
+            user: new DataLoader(keys =>
+              loaders.user.batchUsers(keys, models),
+            ),
+          },
+        };
+      }
 
-server.applyMiddleware({ app, path: '/graphql' });
+      if (req) {
+        const me = await getMe(req);
 
-const httpServer = http.createServer(app);
-server.installSubscriptionHandlers(httpServer);
+        return {
+          models,
+          me,
+          secret: process.env.SECRET,
+          loaders: {
+            user: new DataLoader(keys =>
+              loaders.user.batchUsers(keys, models),
+            ),
+          },
+        };
+      }
+    },
+  });
 
-const isTest = !!process.env.TEST_DATABASE_URL;
-const isProduction = process.env.NODE_ENV === 'production';
+  server.applyMiddleware({ app, path: '/graphql' });
+
+  const httpServer = http.createServer(app);
+  server.installSubscriptionHandlers(httpServer);
+
+  return httpServer;
+};
+
 const port = process.env.PORT || 8000;
 
-connectDb().then(async () => {
-  if (isTest || isProduction) {
-    // reset database
-    await Promise.all([
-      models.User.deleteMany({}),
-      models.Message.deleteMany({}),
-    ]);
-
-    createUsersWithMessages(new Date());
-  }
-
-  httpServer.listen({ port }, () => {
-    console.log(`Apollo Server on http://localhost:${port}/graphql`);
+connectDb()
+  .then(createHttpServer)
+  .then(async httpServer => {
+    httpServer.listen({ port }, () => {
+      console.log(
+        `Apollo Server on http://localhost:${port}/graphql`,
+      );
+    });
   });
-});
-
-const createUsersWithMessages = async date => {
-  const user1 = new models.User({
-    username: 'rwieruch',
-    email: 'hello@robin.com',
-    password: 'rwieruch',
-    role: 'ADMIN',
-  });
-
-  const user2 = new models.User({
-    username: 'ddavids',
-    email: 'hello@david.com',
-    password: 'ddavids',
-  });
-
-  const message1 = new models.Message({
-    text: 'Published the Road to learn React',
-    createdAt: date.setSeconds(date.getSeconds() + 1),
-    userId: user1.id,
-  });
-
-  const message2 = new models.Message({
-    text: 'Happy to release ...',
-    createdAt: date.setSeconds(date.getSeconds() + 1),
-    userId: user2.id,
-  });
-
-  const message3 = new models.Message({
-    text: 'Published a complete ...',
-    createdAt: date.setSeconds(date.getSeconds() + 1),
-    userId: user2.id,
-  });
-
-  await message1.save();
-  await message2.save();
-  await message3.save();
-
-  await user1.save();
-  await user2.save();
-};

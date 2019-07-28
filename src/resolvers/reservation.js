@@ -15,21 +15,20 @@ export default {
   Mutation: {
     createReservation: combineResolvers(
       isAuthenticated,
-      async (parent, { business }, { models, me }) => {
+      async (
+        parent,
+        { businessId, reservationTime, numberOfGuests },
+        { models, me },
+      ) => {
         return await models.Reservation.create({
-          business,
+          businessId,
           userId: me.id,
+          reservationTime,
+          numberOfGuests,
         });
       },
     ),
   },
 
-  Reservation: {
-    business: async (reservation, args, { loaders }) => {
-      return {
-        id: reservation.business,
-        name: 'Giro',
-      };
-    },
-  },
+  Reservation: {},
 };

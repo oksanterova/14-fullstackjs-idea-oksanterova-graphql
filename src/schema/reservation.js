@@ -7,18 +7,19 @@ export default gql`
   }
 
   extend type Mutation {
-    createReservation(business: String!): Reservation!
+    createReservation(
+      businessId: String!
+      reservationTime: Date!
+      numberOfGuests: Int!
+    ): Reservation!
   }
 
   type Reservation {
     id: ID!
     createdAt: Date!
     user: User!
-    business: Business!
-  }
-
-  type Business {
-    id: ID!
-    name: String!
+    businessId: String!
+    reservationTime: Date!
+    numberOfGuests: Int!
   }
 `;

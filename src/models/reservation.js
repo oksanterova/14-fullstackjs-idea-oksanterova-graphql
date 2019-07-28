@@ -7,8 +7,16 @@ const reservationSchema = new mongoose.Schema(
       ref: 'User',
       required: true,
     },
-    business: {
+    businessId: {
       type: String,
+      required: true,
+    },
+    reservationTime: {
+      type: Date,
+      required: true,
+    },
+    numberOfGuests: {
+      type: Number,
       required: true,
     },
   },

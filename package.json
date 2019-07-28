@@ -27,6 +27,8 @@
     "morgan": "^1.9.1"
   },
   "dependencies": {
+    "apollo-link-context": "^1.0.18",
+    "apollo-link-http": "^1.5.15",
     "apollo-server": "^2.7.0",
     "apollo-server-express": "^2.7.0",
     "bcrypt": "^3.0.6",
@@ -34,11 +36,14 @@
     "dataloader": "^1.4.0",
     "dotenv": "^8.0.0",
     "express": "^4.16.4",
+    "fsevents": "^1.2.9",
     "graphql": "^14.4.2",
     "graphql-iso-date": "^3.6.1",
     "graphql-resolvers": "^0.3.2",
     "jsonwebtoken": "^8.5.1",
     "mongoose": "^5.6.5",
+    "node-fetch": "^2.6.0",
+    "promise-limit": "^2.7.0",
     "uuid": "^3.3.2",
     "validator": "^10.9.0"
   }
