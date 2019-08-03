@@ -103,9 +103,6 @@ const createHttpServer = async () => {
           resolve({ businessId }, args, context, info) {
             info.cacheControl.setCacheHint({ maxAge: 86400 });
 
-            console.log('resolve businessId ', businessId);
-            console.log('info ', info);
-
             return limit(() =>
               info.mergeInfo.delegateToSchema({
                 schema: transformedYelpSchema,

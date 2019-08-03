@@ -5,7 +5,7 @@ import { isAuthenticated, isMessageOwner } from './authorization';
 export default {
   Query: {
     reservations: async (parent, {}, { models }) => {
-      return await models.Resevation.find();
+      return await models.Reservation.find();
     },
     reservation: async (parent, { id }, { models }) => {
       return await models.Reservation.findById(id);
@@ -28,7 +28,40 @@ export default {
         });
       },
     ),
+
+    deleteReservation: combineResolvers(
+      isAuthenticated,
+      async (parent, { id }, { models }) => {
+        const reservation = await models.Reservation.findById(id);
+
+        if (reservation) {
+          await reservation.remove();
+          return true;
+        } else {
+          return false;
+        }
+      },
+    ),
+
+    updateReservation: combineResolvers(
+      isAuthenticated,
+      async (
+        parent,
+        { id, reservationTime, numberOfGuests },
+        { models },
+      ) => {
+        return await models.Reservation.findByIdAndUpdate(
+          id,
+          { reservationTime, numberOfGuests },
+          { new: true },
+        );
+      },
+    ),
   },
 
-  Reservation: {},
+  Reservation: {
+    user: async (reservation, args, { models }) => {
+      return await models.User.findById(reservation.userId);
+    },
+  },
 };

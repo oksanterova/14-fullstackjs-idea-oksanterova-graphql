@@ -12,6 +12,12 @@ export default gql`
       reservationTime: Date!
       numberOfGuests: Int!
     ): Reservation!
+    deleteReservation(id: ID!): Boolean!
+    updateReservation(
+      id: ID!
+      reservationTime: Date!
+      numberOfGuests: Int!
+    ): Reservation!
   }
 
   type Reservation {
